@@ -28,6 +28,9 @@ set(PICO_BOARD pico_w CACHE STRING "Board type")
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
 
+set(FREERTOS_KERNEL_PATH "C:/Users/Miller/Desktop/Univasf/Semestre III/Embarca/FreeRTOS-Kernel")
+include(${FREERTOS_KERNEL_PATH}/portable/ThirdParty/GCC/RP2040/FreeRTOS_Kernel_import.cmake)
+
 project(mqtt_client C CXX ASM)
 
 # Initialise the Raspberry Pi Pico SDK
@@ -35,7 +38,12 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(mqtt_client mqtt_client.c )
+add_executable(
+        mqtt_client 
+        mqtt_client.c 
+        ${CMAKE_CURRENT_LIST_DIR}/lib/led_matriz.c)
+
+pico_generate_pio_header(${PROJECT_NAME} ${CMAKE_CURRENT_LIST_DIR}/pio_matriz.pio)
 
 pico_set_program_name(mqtt_client "mqtt_client")
 pico_set_program_version(mqtt_client "0.1")
@@ -56,12 +64,17 @@ target_link_libraries(mqtt_client
 
 # Add the standard include files to the build
 target_include_directories(mqtt_client PRIVATE
-        ${CMAKE_CURRENT_LIST_DIR}
+        ${CMAKE_CURRENT_LIST_DIR}     
+        ${CMAKE_CURRENT_LIST_DIR}/lib
 )
 
 # Add any user requested libraries
 target_link_libraries(mqtt_client 
-        
+        FreeRTOS-Kernel         # Kernel do FreeRTOS
+        FreeRTOS-Kernel-Heap4   # Gerenciador de memoria
+        hardware_pwm
+        hardware_pio
+        hardware_clocks
         )
 
 pico_add_extra_outputs(mqtt_client)

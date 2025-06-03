@@ -18,11 +18,16 @@
 #include "lwip/dns.h"               // Biblioteca que fornece funções e recursos suporte DNS:
 #include "lwip/altcp_tls.h"         // Biblioteca que fornece funções e recursos para conexões seguras usando TLS:
 
-#define WIFI_SSID "SEU_SSID"                  // Substitua pelo nome da sua rede Wi-Fi
-#define WIFI_PASSWORD "SEU_PASSORD_WIFI"      // Substitua pela senha da sua rede Wi-Fi
-#define MQTT_SERVER "SEU_HOST"                // Substitua pelo endereço do host - broket MQTT: Ex: 192.168.1.107
-#define MQTT_USERNAME "SEU_USERNAME_MQTT"     // Substitua pelo nome da host MQTT - Username
-#define MQTT_PASSWORD "SEU_PASSWORD_MQTT"     // Substitua pelo Password da host MQTT - credencial de acesso - caso exista
+#include "FreeRTOS.h"
+#include "task.h"
+
+#include "lib/led_matriz.h"
+
+#define WIFI_SSID "Guilherme 2.4"                  // Substitua pelo nome da sua rede Wi-Fi
+#define WIFI_PASSWORD "Cardoso1203"             // Substitua pela senha da sua rede Wi-Fi
+#define MQTT_SERVER "192.168.100.234"                // Substitua pelo endereço do host - broket MQTT: Ex: 192.168.1.107
+#define MQTT_USERNAME "admin"     // Substitua pelo nome da host MQTT - Username
+#define MQTT_PASSWORD "qjEycU4w"     // Substitua pelo Password da host MQTT - credencial de acesso - caso exista
 
 // Definição da escala de temperatura
 #ifndef TEMPERATURE_UNITS
