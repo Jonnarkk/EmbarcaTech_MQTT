@@ -41,7 +41,8 @@ pico_sdk_init()
 add_executable(
         mqtt_client 
         mqtt_client.c 
-        ${CMAKE_CURRENT_LIST_DIR}/led_matriz.c
+        ${CMAKE_CURRENT_LIST_DIR}/lib/led_matriz.c
+        ${CMAKE_CURRENT_LIST_DIR}/lib/buzzer.c
         )
 
 pico_generate_pio_header(${PROJECT_NAME} ${CMAKE_CURRENT_LIST_DIR}/pio_matriz.pio)

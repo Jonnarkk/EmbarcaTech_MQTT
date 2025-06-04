@@ -22,18 +22,21 @@
 #include "task.h"
 
 #include "led_matriz.h"
+#include "buzzer.h"
 
 #define WIFI_SSID "Guilherme 2.4"                  // Substitua pelo nome da sua rede Wi-Fi
 #define WIFI_PASSWORD "Cardoso1203"             // Substitua pela senha da sua rede Wi-Fi
-#define MQTT_SERVER "192.168.100.234"                // Substitua pelo endereço do host - broket MQTT: Ex: 192.168.1.107
+#define MQTT_SERVER "192.168.100.249"                // Substitua pelo endereço do host - broket MQTT: Ex: 192.168.1.107
 #define MQTT_USERNAME "admin"     // Substitua pelo nome da host MQTT - Username
 #define MQTT_PASSWORD "qjEycU4w"     // Substitua pelo Password da host MQTT - credencial de acesso - caso exista
 
 #define RED_PIN 13
 #define BLUE_PIN 12
 #define GREEN_PIN 11
+#define BUZZER 10
 
-volatile bool ESTADOLED = false;
+volatile bool estadomatriz = false;
+volatile bool estadobuzzer = false;
 
 // Definição da escala de temperatura
 #ifndef TEMPERATURE_UNITS
@@ -163,7 +166,7 @@ void vTaskMatriz(void *pvParameters){
     uint sm = pio_init(pio);
 
     while(true){
-        if(ESTADOLED)
+        if(estadomatriz)
             ligar_matriz_toda(pio, sm, 0.1, 0.1, 0.1);
     
         else
@@ -257,6 +260,23 @@ void vTaskMQTT(void *pvParameters){
     INFO_printf("mqtt client exiting\n");
 }
 
+void vTaskBuzzer(void *pvParameters){
+    while(true){
+        if(estadobuzzer){
+            buzz(BUZZER, 700, 200);
+            vTaskDelay(pdMS_TO_TICKS(300));
+            buzz(BUZZER, 700, 200);
+            vTaskDelay(pdMS_TO_TICKS(300));
+            buzz(BUZZER, 700, 200);
+            
+            vTaskDelay(pdMS_TO_TICKS(600));
+
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+
 void setup(){
 
     // Configuração dos LEDs como saída
@@ -272,6 +292,9 @@ void setup(){
     gpio_set_dir(BLUE_PIN, GPIO_OUT);
     gpio_put(BLUE_PIN, false);
 
+    // Inicializa o Buzzer
+    gpio_init(BUZZER);
+    gpio_set_dir(BUZZER, GPIO_OUT);
 }
 
 int main(void) {
@@ -290,6 +313,7 @@ int main(void) {
     // Cria tarefas 
     xTaskCreate(vTaskMatriz, "Task da Matriz", configMINIMAL_STACK_SIZE + 128, NULL, 1, NULL);
     xTaskCreate(vTaskMQTT, "Task do MQTT", configMINIMAL_STACK_SIZE + 128, NULL, 1, NULL);
+    xTaskCreate(vTaskBuzzer, "Task do Buzzer", configMINIMAL_STACK_SIZE + 128, NULL, 1, NULL);
     
     vTaskStartScheduler();
     panic_unsupported();
@@ -340,12 +364,10 @@ static void control_led(MQTT_CLIENT_DATA_T *state, bool on, uint16_t led) {
     const char* message = on ? "On" : "Off";
     if(led == 0){
         if (on){
-            cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
-            ESTADOLED = true;
+            estadomatriz = true;
         }
         else{
-            cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
-            ESTADOLED = false;
+            estadomatriz = false;
         }
     }
     else if(led == 1){
@@ -359,6 +381,12 @@ static void control_led(MQTT_CLIENT_DATA_T *state, bool on, uint16_t led) {
             gpio_put(GREEN_PIN, false);
             gpio_put(BLUE_PIN, false);
         }
+    }
+    else if(led == 2){
+        if(on)
+            cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, true);
+        else
+            cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, false);
     }
     
 
@@ -427,7 +455,7 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
 
     DEBUG_printf("Topic: %s, Message: %s\n", state->topic, state->data);
     if (strcmp(basic_topic, "/led/lampadaA/comando") == 0) { // NOVO TÓPICO
-        INFO_printf("Comando para LED WI-FI: %s\n", state->data);
+        INFO_printf("Comando para LED Matriz: %s\n", state->data);
         if (lwip_stricmp(state->data, "On") == 0 || strcmp(state->data, "1") == 0) {
             control_led(state, true, 0);
             // Opcional: publicar estado de volta
@@ -446,6 +474,26 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
         } else if (lwip_stricmp(state->data, "Off") == 0 || strcmp(state->data, "0") == 0) {
             control_led(state, false, 1);
             mqtt_publish(state->mqtt_client_inst, full_topic(state, "/led/lampadaB/estado"), "Off", strlen("Off"), MQTT_PUBLISH_QOS, MQTT_PUBLISH_RETAIN, pub_request_cb, state);
+        }
+    }else if (strcmp(basic_topic, "/led/lampadaC/comando") == 0) {
+        INFO_printf("Comando para LED Wi-Fi: %s\n", state->data);
+        if (lwip_stricmp(state->data, "On") == 0 || strcmp(state->data, "1") == 0) {
+            control_led(state, true, 2);
+            // Opcional: publicar estado de volta
+            mqtt_publish(state->mqtt_client_inst, full_topic(state, "/led/lampadaC/estado"), "On", strlen("On"), MQTT_PUBLISH_QOS, MQTT_PUBLISH_RETAIN, pub_request_cb, state);
+        } else if (lwip_stricmp(state->data, "Off") == 0 || strcmp(state->data, "0") == 0) {
+            control_led(state, false, 2);
+            mqtt_publish(state->mqtt_client_inst, full_topic(state, "/led/lampadaC/estado"), "Off", strlen("Off"), MQTT_PUBLISH_QOS, MQTT_PUBLISH_RETAIN, pub_request_cb, state);
+        }
+    }else if (strcmp(basic_topic, "/led/buzzer/comando") == 0) {
+        INFO_printf("Comando para Buzzer: %s\n", state->data);
+        if (lwip_stricmp(state->data, "On") == 0 || strcmp(state->data, "1") == 0) {
+            estadobuzzer = true;
+            // Opcional: publicar estado de volta
+            mqtt_publish(state->mqtt_client_inst, full_topic(state, "/led/buzzer/estado"), "On", strlen("On"), MQTT_PUBLISH_QOS, MQTT_PUBLISH_RETAIN, pub_request_cb, state);
+        } else if (lwip_stricmp(state->data, "Off") == 0 || strcmp(state->data, "0") == 0) {
+            estadobuzzer = false;
+            mqtt_publish(state->mqtt_client_inst, full_topic(state, "/led/buzzer/estado"), "Off", strlen("Off"), MQTT_PUBLISH_QOS, MQTT_PUBLISH_RETAIN, pub_request_cb, state);
         }
     }else if (strcmp(basic_topic, "/print") == 0) {
         INFO_printf("%.*s\n", len, data);
