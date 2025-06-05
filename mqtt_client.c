@@ -18,25 +18,26 @@
 #include "lwip/dns.h"               // Biblioteca que fornece funções e recursos suporte DNS:
 #include "lwip/altcp_tls.h"         // Biblioteca que fornece funções e recursos para conexões seguras usando TLS:
 
-#include "FreeRTOS.h"
-#include "task.h"
+#include "FreeRTOS.h"               // Biblioteca utilizada pelo sistema operacional FreeRTOS
+#include "task.h"                   // Biblioteca utilizada pelo sistema operacional FreeRTOS
 
-#include "led_matriz.h"
-#include "buzzer.h"
+#include "led_matriz.h"             // Biblioteca que permite uso da matriz de LED's
+#include "buzzer.h"                 // Biblioteca que permite uso do Buzzer
 
-#define WIFI_SSID "Guilherme 2.4"                  // Substitua pelo nome da sua rede Wi-Fi
-#define WIFI_PASSWORD "Cardoso1203"             // Substitua pela senha da sua rede Wi-Fi
-#define MQTT_SERVER "192.168.100.249"                // Substitua pelo endereço do host - broket MQTT: Ex: 192.168.1.107
-#define MQTT_USERNAME "admin"     // Substitua pelo nome da host MQTT - Username
-#define MQTT_PASSWORD "qjEycU4w"     // Substitua pelo Password da host MQTT - credencial de acesso - caso exista
+#define WIFI_SSID "Guilherme 2.4"                   // Substitua pelo nome da sua rede Wi-Fi
+#define WIFI_PASSWORD "Cardoso1203"                 // Substitua pela senha da sua rede Wi-Fi
+#define MQTT_SERVER "192.168.100.234"               // Substitua pelo endereço do host - broket MQTT: Ex: 192.168.1.107
+#define MQTT_USERNAME "admin"                       // Substitua pelo nome da host MQTT - Username
+#define MQTT_PASSWORD "qjEycU4w"                    // Substitua pelo Password da host MQTT - credencial de acesso - caso exista
 
+// Defines do pinos utilizados
 #define RED_PIN 13
 #define BLUE_PIN 12
 #define GREEN_PIN 11
 #define BUZZER 10
 
-volatile bool estadomatriz = false;
-volatile bool estadobuzzer = false;
+volatile bool estadomatriz = false;     // Variável para controle do estado da matriz de LED's, usada na função vTaskMatriz
+volatile bool estadobuzzer = false;     // Varíavel para controle do estado do buzzer, usada na função vTaskBuzzer
 
 // Definição da escala de temperatura
 #ifndef TEMPERATURE_UNITS
@@ -160,7 +161,41 @@ static void start_client(MQTT_CLIENT_DATA_T *state);
 // Call back com o resultado do DNS
 static void dns_found(const char *hostname, const ip_addr_t *ipaddr, void *arg);
 
-// Função para Task da Matriz de LED's
+// Função para Task da Matriz de LED's, declarada após main
+void vTaskMatriz(void *pvParameters);
+
+// Função para Task do MQTT e manutenção da conexão Wi-Fi, declarada após main
+void vTaskMQTT(void *pvParameters);
+
+// Função para Task do Buzzer, declarada após main
+void vTaskBuzzer(void *pvParameters);
+
+// Função para inicialização dos pinos, declarada após main
+void setup();
+
+int main(void) {
+
+    // Inicializa todos os tipos de bibliotecas stdio padrão presentes que estão ligados ao binário.
+    stdio_init_all();
+    setup();
+
+    INFO_printf("mqtt client starting\n");
+
+    // Inicializa o conversor ADC
+    adc_init();
+    adc_set_temp_sensor_enabled(true);
+    adc_select_input(4);
+
+    // Cria tarefas 
+    xTaskCreate(vTaskMatriz, "Task da Matriz", configMINIMAL_STACK_SIZE + 128, NULL, 1, NULL);
+    xTaskCreate(vTaskMQTT, "Task do MQTT", configMINIMAL_STACK_SIZE + 128, NULL, 1, NULL);
+    xTaskCreate(vTaskBuzzer, "Task do Buzzer", configMINIMAL_STACK_SIZE + 128, NULL, 1, NULL);
+    
+    vTaskStartScheduler();
+    panic_unsupported();
+
+}
+
 void vTaskMatriz(void *pvParameters){
     PIO pio = pio0;
     uint sm = pio_init(pio);
@@ -297,29 +332,6 @@ void setup(){
     gpio_set_dir(BUZZER, GPIO_OUT);
 }
 
-int main(void) {
-
-    // Inicializa todos os tipos de bibliotecas stdio padrão presentes que estão ligados ao binário.
-    stdio_init_all();
-    setup();
-
-    INFO_printf("mqtt client starting\n");
-
-    // Inicializa o conversor ADC
-    adc_init();
-    adc_set_temp_sensor_enabled(true);
-    adc_select_input(4);
-
-    // Cria tarefas 
-    xTaskCreate(vTaskMatriz, "Task da Matriz", configMINIMAL_STACK_SIZE + 128, NULL, 1, NULL);
-    xTaskCreate(vTaskMQTT, "Task do MQTT", configMINIMAL_STACK_SIZE + 128, NULL, 1, NULL);
-    xTaskCreate(vTaskBuzzer, "Task do Buzzer", configMINIMAL_STACK_SIZE + 128, NULL, 1, NULL);
-    
-    vTaskStartScheduler();
-    panic_unsupported();
-
-}
-
 /* References for this implementation:
  * raspberry-pi-pico-c-sdk.pdf, Section '4.1.1. hardware_adc'
  * pico-examples/adc/adc_console/adc_console.c */
@@ -358,7 +370,7 @@ static const char *full_topic(MQTT_CLIENT_DATA_T *state, const char *name) {
 #endif
 }
 
-// Controle do LED 
+// Controle do LED's
 static void control_led(MQTT_CLIENT_DATA_T *state, bool on, uint16_t led) {
     // Publish state on /state topic and on/off led board
     const char* message = on ? "On" : "Off";
@@ -389,8 +401,6 @@ static void control_led(MQTT_CLIENT_DATA_T *state, bool on, uint16_t led) {
             cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, false);
     }
     
-
-    mqtt_publish(state->mqtt_client_inst, full_topic(state, "/led/state"), message, strlen(message), MQTT_PUBLISH_QOS, MQTT_PUBLISH_RETAIN, pub_request_cb, state);
 }
 
 // Publicar temperatura
@@ -436,6 +446,7 @@ static void unsub_request_cb(void *arg, err_t err) {
 static void sub_unsub_topics(MQTT_CLIENT_DATA_T* state, bool sub) {
     mqtt_request_cb_t cb = sub ? sub_request_cb : unsub_request_cb;
     mqtt_sub_unsub(state->mqtt_client_inst, full_topic(state, "/led/#"), MQTT_SUBSCRIBE_QOS, cb, state, sub);
+    mqtt_sub_unsub(state->mqtt_client_inst, full_topic(state, "/buzzer/#"), MQTT_SUBSCRIBE_QOS, cb, state, sub);
     mqtt_sub_unsub(state->mqtt_client_inst, full_topic(state, "/print"), MQTT_SUBSCRIBE_QOS, cb, state, sub);
     mqtt_sub_unsub(state->mqtt_client_inst, full_topic(state, "/ping"), MQTT_SUBSCRIBE_QOS, cb, state, sub);
     mqtt_sub_unsub(state->mqtt_client_inst, full_topic(state, "/exit"), MQTT_SUBSCRIBE_QOS, cb, state, sub);
@@ -454,46 +465,44 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
     state->data[len] = '\0';
 
     DEBUG_printf("Topic: %s, Message: %s\n", state->topic, state->data);
-    if (strcmp(basic_topic, "/led/lampadaA/comando") == 0) { // NOVO TÓPICO
+    if (strcmp(basic_topic, "/led/lampadaA/comando") == 0) { // Verifica se o tópico é da lâmpada A
         INFO_printf("Comando para LED Matriz: %s\n", state->data);
         if (lwip_stricmp(state->data, "On") == 0 || strcmp(state->data, "1") == 0) {
-            control_led(state, true, 0);
-            // Opcional: publicar estado de volta
-            mqtt_publish(state->mqtt_client_inst, full_topic(state, "/led/lampadaA/estado"), "On", strlen("On"), MQTT_PUBLISH_QOS, MQTT_PUBLISH_RETAIN, pub_request_cb, state);
+            control_led(state, true, 0);        // Faz o acionamento do LED na função Control_led
+            mqtt_publish(state->mqtt_client_inst, full_topic(state, "/led/lampadaA/estado"), "On", strlen("On"), MQTT_PUBLISH_QOS, MQTT_PUBLISH_RETAIN, pub_request_cb, state);     // Publica o estado no tópico
         } else if (lwip_stricmp(state->data, "Off") == 0 || strcmp(state->data, "0") == 0) {
-            control_led(state, false, 0);
-            mqtt_publish(state->mqtt_client_inst, full_topic(state, "/led/lampadaA/estado"), "Off", strlen("Off"), MQTT_PUBLISH_QOS, MQTT_PUBLISH_RETAIN, pub_request_cb, state);
+            control_led(state, false, 0);       // Faz o acionamento do LED na função Control_led
+            mqtt_publish(state->mqtt_client_inst, full_topic(state, "/led/lampadaA/estado"), "Off", strlen("Off"), MQTT_PUBLISH_QOS, MQTT_PUBLISH_RETAIN, pub_request_cb, state);   // Publica o estado no tópico
         }
     }
-    else if (strcmp(basic_topic, "/led/lampadaB/comando") == 0) {
+    else if (strcmp(basic_topic, "/led/lampadaB/comando") == 0) {   // Verifica se o tópico é da lâmpada B
         INFO_printf("Comando para LED RGB: %s\n", state->data);
         if (lwip_stricmp(state->data, "On") == 0 || strcmp(state->data, "1") == 0) {
-            control_led(state, true, 1);
-            // Opcional: publicar estado de volta
-            mqtt_publish(state->mqtt_client_inst, full_topic(state, "/led/lampadaB/estado"), "On", strlen("On"), MQTT_PUBLISH_QOS, MQTT_PUBLISH_RETAIN, pub_request_cb, state);
+            control_led(state, true, 1);        // Faz o acionamento do LED na função Control_led
+            mqtt_publish(state->mqtt_client_inst, full_topic(state, "/led/lampadaB/estado"), "On", strlen("On"), MQTT_PUBLISH_QOS, MQTT_PUBLISH_RETAIN, pub_request_cb, state); // Publica o estado no tópico
         } else if (lwip_stricmp(state->data, "Off") == 0 || strcmp(state->data, "0") == 0) {
-            control_led(state, false, 1);
-            mqtt_publish(state->mqtt_client_inst, full_topic(state, "/led/lampadaB/estado"), "Off", strlen("Off"), MQTT_PUBLISH_QOS, MQTT_PUBLISH_RETAIN, pub_request_cb, state);
+            control_led(state, false, 1);       // Faz o acionamento do LED na função Control_led
+            mqtt_publish(state->mqtt_client_inst, full_topic(state, "/led/lampadaB/estado"), "Off", strlen("Off"), MQTT_PUBLISH_QOS, MQTT_PUBLISH_RETAIN, pub_request_cb, state);   // Publica o estado no tópico
         }
-    }else if (strcmp(basic_topic, "/led/lampadaC/comando") == 0) {
+    }else if (strcmp(basic_topic, "/led/lampadaC/comando") == 0) {  // Verifica se o tópico é da lâmpada C
         INFO_printf("Comando para LED Wi-Fi: %s\n", state->data);
         if (lwip_stricmp(state->data, "On") == 0 || strcmp(state->data, "1") == 0) {
-            control_led(state, true, 2);
+            control_led(state, true, 2);        // Faz o acionamento do LED na função Control_led
             // Opcional: publicar estado de volta
-            mqtt_publish(state->mqtt_client_inst, full_topic(state, "/led/lampadaC/estado"), "On", strlen("On"), MQTT_PUBLISH_QOS, MQTT_PUBLISH_RETAIN, pub_request_cb, state);
+            mqtt_publish(state->mqtt_client_inst, full_topic(state, "/led/lampadaC/estado"), "On", strlen("On"), MQTT_PUBLISH_QOS, MQTT_PUBLISH_RETAIN, pub_request_cb, state);     // Publica o estado no tópico
         } else if (lwip_stricmp(state->data, "Off") == 0 || strcmp(state->data, "0") == 0) {
-            control_led(state, false, 2);
-            mqtt_publish(state->mqtt_client_inst, full_topic(state, "/led/lampadaC/estado"), "Off", strlen("Off"), MQTT_PUBLISH_QOS, MQTT_PUBLISH_RETAIN, pub_request_cb, state);
+            control_led(state, false, 2);       // Faz o acionamento do LED na função Control_led
+            mqtt_publish(state->mqtt_client_inst, full_topic(state, "/led/lampadaC/estado"), "Off", strlen("Off"), MQTT_PUBLISH_QOS, MQTT_PUBLISH_RETAIN, pub_request_cb, state);   // Publica o estado no tópico
         }
-    }else if (strcmp(basic_topic, "/led/buzzer/comando") == 0) {
+    }else if (strcmp(basic_topic, "/buzzer/comando") == 0) {    // Verifica se o tópico é do Buzzer
         INFO_printf("Comando para Buzzer: %s\n", state->data);
         if (lwip_stricmp(state->data, "On") == 0 || strcmp(state->data, "1") == 0) {
             estadobuzzer = true;
             // Opcional: publicar estado de volta
-            mqtt_publish(state->mqtt_client_inst, full_topic(state, "/led/buzzer/estado"), "On", strlen("On"), MQTT_PUBLISH_QOS, MQTT_PUBLISH_RETAIN, pub_request_cb, state);
+            mqtt_publish(state->mqtt_client_inst, full_topic(state, "/buzzer/estado"), "On", strlen("On"), MQTT_PUBLISH_QOS, MQTT_PUBLISH_RETAIN, pub_request_cb, state);       // Publica o estado no tópico
         } else if (lwip_stricmp(state->data, "Off") == 0 || strcmp(state->data, "0") == 0) {
             estadobuzzer = false;
-            mqtt_publish(state->mqtt_client_inst, full_topic(state, "/led/buzzer/estado"), "Off", strlen("Off"), MQTT_PUBLISH_QOS, MQTT_PUBLISH_RETAIN, pub_request_cb, state);
+            mqtt_publish(state->mqtt_client_inst, full_topic(state, "/buzzer/estado"), "Off", strlen("Off"), MQTT_PUBLISH_QOS, MQTT_PUBLISH_RETAIN, pub_request_cb, state);     // Publica o estado no tópico
         }
     }else if (strcmp(basic_topic, "/print") == 0) {
         INFO_printf("%.*s\n", len, data);
